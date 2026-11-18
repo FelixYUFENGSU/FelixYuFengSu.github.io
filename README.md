@@ -19,6 +19,10 @@ My personal site and blog, built by a small Python script (`build.py`) and publi
 
 2. Commit and push. The GitHub Action builds and deploys the site in about a minute.
 
+## Projects
+
+Every public repo on my GitHub gets its own page at `/projects/<repo>/`, built from its README with setup and install sections removed. To write a project's page yourself, add `content/projects/<repo-name>.md` with a `title:` and `summary:` in the front matter. The list refreshes daily.
+
 ## Preview locally
 
 ```bash
@@ -33,6 +37,7 @@ cd _site && python -m http.server 8000     # open http://localhost:8000
 |---|---|
 | `content/_home.md` | intro text on the home page |
 | `content/about.md`, `content/projects.md` | standalone pages |
+| `content/projects/<repo>.md` | optional hand-written page for a repo (otherwise its README is used) |
 | `content/posts/` | blog posts |
 | `templates/base.html` | page shell (nav, footer) |
 | `static/` | CSS, KaTeX, the banner SVG |

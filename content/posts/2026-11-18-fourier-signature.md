@@ -47,4 +47,4 @@ The gold ink is the curve reconstructed from those same 260 terms. Each stroke i
 
 ## What I learned
 
-The idea fits in two equations, but making it look right came down to small details: resampling by arc length so the pen moves at a steady pace, hiding the pen-up jumps, and choosing how many terms to keep. The full script is [on my GitHub](https://github.com/FelixYUFENGSU/FelixYuFengSu.github.io/blob/main/banner/generate_banner.py).
+The idea fits in two equations, but making it look right came down to small details: resampling by arc length so the pen moves at a steady pace, hiding the pen-up jumps, and choosing how many terms to keep.

@@ -6,9 +6,10 @@ Tiny static site generator for my blog.
     static/              ->  copied as-is (css, banner)
     templates/base.html  ->  page shell
 
-Run `python build.py` and open _site/index.html. The Projects page lists my
-public GitHub repos automatically (wherever content/projects.md has the
-<!-- REPOS --> marker). On GitHub, the workflow in
+Run `python build.py` and open _site/index.html. Every public GitHub repo
+gets its own page at /projects/<repo>/, written from its README (or from
+content/projects/<repo>.md if that exists), and is listed wherever
+content/projects.md has the <!-- REPOS --> marker. On GitHub, the workflow in
 .github/workflows/pages.yml runs this on every push and publishes _site/.
 
 Math: write LaTeX between $...$ (inline) or $$...$$ (display); KaTeX renders
@@ -107,6 +108,14 @@ def post_list(posts):
 
 
 # ------------------------------------------------------------ GitHub repos
+# Every public repo gets its own page at /projects/<repo>/, written from its
+# README. To write a page by hand instead, add content/projects/<repo>.md
+# (front matter: title, summary). Visitors never get sent to GitHub.
+SKIP_SECTIONS = re.compile(
+    r"^(getting started|install(ation|ing)?|set ?up|quick ?start|running( it)? locally|"
+    r"development|scripts|requirements|prerequisites|build(ing)?|contributing|license)\b", re.I)
+
+
 def gh_get(url, raw=False):
     headers = {"Accept": "application/vnd.github.raw" if raw else "application/vnd.github+json",
                "User-Agent": "site-builder"}
@@ -134,9 +143,41 @@ def readme_summary(text, limit=320):
     return ""
 
 
+def clean_readme(text, repo, branch):
+    """Turn a README into an on-site article: drop the top title (the page has
+    its own), drop setup/install sections, load images from the repo, and turn
+    links to repo files into plain text so readers stay on the site."""
+    text = text.replace("\r\n", "\n")
+    text = re.sub(r"\A\s*#\s[^\n]*\n", "", text)            # leading "# Title"
+    out, skipping, level, fence = [], False, 0, False
+    for line in text.split("\n"):
+        if line.lstrip().startswith("```"):
+            fence = not fence
+        m = None if fence else re.match(r"^(#{1,6})\s+(.*)", line)
+        if m:
+            if skipping and len(m.group(1)) <= level:
+                skipping = False
+            if not skipping and SKIP_SECTIONS.match(m.group(2).strip()):
+                skipping, level = True, len(m.group(1))
+        if not skipping:
+            out.append(line)
+    text = "\n".join(out).strip()
+    raw = f"https://raw.githubusercontent.com/{GITHUB_USER}/{repo}/{branch}/"
+
+    def image(m):
+        src = m.group(2)
+        return m.group(0) if re.match(r"https?://|data:", src) else f"![{m.group(1)}]({raw}{src.lstrip('./')})"
+
+    text = re.sub(r"!\[([^\]]*)\]\(([^)\s]+)[^)]*\)", image, text)
+    text = re.sub(r'(<img[^>]*src=")(?!https?://)\.?/?([^"]+)"', lambda m: f'{m.group(1)}{raw}{m.group(2)}"', text)
+    # [text](relative/path) -> text ; [text](https://github.com/...) -> text
+    text = re.sub(r"(?<!!)\[([^\]]+)\]\((?!https?://(?!github\.com))[^)]*\)", r"\1", text)
+    return text
+
+
 def fetch_repos():
-    """Public, non-fork repos, most recently pushed first. Set REPOS_JSON to a
-    file path to build offline from a saved list instead of the API."""
+    """Public, non-fork repos, most recently pushed first, each with its README.
+    Set REPOS_JSON to a file path to build offline from a saved list."""
     if os.environ.get("REPOS_JSON"):
         return json.loads(Path(os.environ["REPOS_JSON"]).read_text())
     api = f"https://api.github.com/users/{GITHUB_USER}/repos?per_page=100&sort=pushed"
@@ -144,15 +185,13 @@ def fetch_repos():
     for r in gh_get(api):
         if r["fork"] or r["private"] or r["name"].lower() in SKIP_REPOS or r["name"] == GITHUB_USER:
             continue
-        summary = r["description"] or ""
-        if not summary:
-            try:
-                summary = readme_summary(gh_get(f"https://api.github.com/repos/{GITHUB_USER}/{r['name']}/readme", raw=True))
-            except Exception:
-                pass
-        repos.append({"name": r["name"], "url": r["html_url"], "summary": summary,
-                      "language": r["language"], "topics": r.get("topics", []),
-                      "stars": r["stargazers_count"], "homepage": r.get("homepage") or "",
+        try:
+            readme = gh_get(f"https://api.github.com/repos/{GITHUB_USER}/{r['name']}/readme", raw=True)
+        except Exception:
+            readme = ""
+        repos.append({"name": r["name"], "description": r["description"] or "", "readme": readme,
+                      "branch": r.get("default_branch", "main"), "language": r["language"],
+                      "topics": r.get("topics", []), "homepage": r.get("homepage") or "",
                       "pushed": r["pushed_at"][:10]})
     return repos
 
@@ -161,32 +200,70 @@ LANG_COLORS = {"Python": "#3572A5", "TypeScript": "#3178c6", "JavaScript": "#f1e
                "C++": "#f34b7d", "Jupyter Notebook": "#DA5B0B", "R": "#198CE7", "HTML": "#e34c26"}
 
 
-def repo_cards():
+def pretty(name):
+    words = re.split(r"[-_]+", name)
+    return " ".join(w if any(c.isdigit() for c in w) or w.isupper() else w.capitalize() for w in words)
+
+
+def load_projects():
+    """Merge GitHub repos with any hand-written content/projects/<repo>.md."""
     try:
         repos = fetch_repos()
     except Exception as exc:                      # never fail the whole build over this
         print(f"warning: could not load GitHub repos ({exc})")
-        return f'<p class="muted">See all my repositories on <a href="{SITE["github"]}?tab=repositories">GitHub</a>.</p>'
-    cards = []
+        repos = []
+    projects = []
     for r in repos:
-        d = date.fromisoformat(r["pushed"])
-        bits = []
-        if r["language"]:
-            color = LANG_COLORS.get(r["language"], "#999")
-            bits.append(f'<span><i class="dot" style="background:{color}"></i>{r["language"]}</span>')
-        if r["stars"]:
-            bits.append(f'<span>★ {r["stars"]}</span>')
-        bits.append(f'<span>Updated {d:%b} {d.year}</span>')
-        links = f'<a href="{r["url"]}">code</a>' + (f' · <a href="{r["homepage"]}">demo</a>' if r["homepage"] else "")
-        topics = "".join(f'<span class="topic">{t}</span>' for t in r["topics"])
-        summary = r["summary"] or '<span class="muted">No description yet.</span>'
+        override = ROOT / "content" / "projects" / f"{r['name']}.md"
+        meta, body = parse(override) if override.exists() else ({}, "")
+        if not body.strip():
+            body = clean_readme(r["readme"], r["name"], r["branch"]) if r["readme"] else ""
+        projects.append({
+            **r,
+            "title": meta.get("title") or pretty(r["name"]),
+            "summary": meta.get("summary") or r["description"] or readme_summary(r["readme"]),
+            "body": body,
+            "href": f"/projects/{r['name']}/",
+        })
+    return projects
+
+
+def meta_line(p):
+    d = date.fromisoformat(p["pushed"])
+    bits = []
+    if p["language"]:
+        color = LANG_COLORS.get(p["language"], "#999")
+        bits.append(f'<span><i class="dot" style="background:{color}"></i>{p["language"]}</span>')
+    bits.append(f'<span>Updated {d:%b} {d.year}</span>')
+    if p["homepage"]:
+        bits.append(f'<span><a href="{p["homepage"]}">Live demo</a></span>')
+    return "".join(bits)
+
+
+def repo_cards(projects):
+    if not projects:
+        return '<p class="muted">More projects coming soon.</p>'
+    cards = []
+    for p in projects:
+        topics = "".join(f'<span class="topic">{t}</span>' for t in p["topics"])
+        summary = p["summary"] or '<span class="muted">Write-up coming soon.</span>'
         cards.append(
-            f'<div class="repo"><h3><a href="{r["url"]}">{r["name"]}</a></h3>'
+            f'<a class="repo" href="{p["href"]}"><h3>{p["title"]}</h3>'
             f'<p>{summary}</p>'
             + (f'<div class="topics">{topics}</div>' if topics else "")
-            + f'<div class="repo-meta">{"".join(bits)}<span class="links">{links}</span></div></div>'
+            + f'<div class="repo-meta">{meta_line(p)}<span class="links">Read more →</span></div></a>'
         )
     return "".join(cards)
+
+
+def project_page(template, p):
+    body = render_md(p["body"]) if p["body"].strip() else \
+        '<p class="muted">A full write-up for this project is coming soon.</p>'
+    lead = f'<p class="lead">{p["summary"]}</p>' if p["summary"] and not p["body"].strip() else ""
+    html = (f'<article class="post"><time>Project · {p["language"] or "code"} · '
+            f'updated {nice_date(p["pushed"])}</time><h1>{p["title"]}</h1>{lead}{body}</article>'
+            f'<p class="back"><a href="/projects/">← All projects</a></p>')
+    return page(template, p["title"], html, "Projects")
 
 
 # ------------------------------------------------------------ build
@@ -217,6 +294,11 @@ def build():
              f'{n} article{"s" if n != 1 else ""} so far.</p><hr>')
     write("blog", page(template, "Blog", intro + post_list(posts), "Blog"))
 
+    # project pages (one per GitHub repo)
+    projects = load_projects()
+    for p in projects:
+        write(f"projects/{p['name']}", project_page(template, p))
+
     # standalone pages
     for path in (ROOT / "content").glob("*.md"):
         if path.name.startswith("_"):
@@ -224,7 +306,7 @@ def build():
         meta, body = parse(path)
         content = render_md(body)
         if "<!-- REPOS -->" in content:
-            content = content.replace("<!-- REPOS -->", repo_cards())
+            content = content.replace("<!-- REPOS -->", repo_cards(projects))
         html = f'<h1>{meta["title"]}</h1><div class="prose">{content}</div>'
         write(path.stem, page(template, meta["title"], html, meta["title"]))
 
@@ -239,7 +321,7 @@ def build():
     )
     write("", page(template, SITE["name"], home, "Home"))
     (OUT / ".nojekyll").touch()
-    print(f"built {n} post(s) into {OUT}")
+    print(f"built {n} post(s) and {len(projects)} project page(s) into {OUT}")
 
 
 if __name__ == "__main__":
