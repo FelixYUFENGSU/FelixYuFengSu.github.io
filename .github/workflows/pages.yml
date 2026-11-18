@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  schedule:
+    - cron: "17 10 * * *"   # daily rebuild so the Projects page stays current
 
 permissions:
   contents: read
@@ -24,6 +26,8 @@ jobs:
           python-version: "3.12"
       - run: pip install -r requirements.txt
       - run: python build.py
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
