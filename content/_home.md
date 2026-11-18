@@ -3,4 +3,4 @@ title: Home
 ---
 Hi, I'm Felix. I'm a master's student in Mathematical Sciences at NYU Tandon, and before that I studied Mathematics of Computation at UCLA.
 
-I like taking an idea that lives on paper (a transform, a statistical model, a market) and making it run. These days that means quantitative research, statistics, and a lot of Python. 
+I created this page as a digital analogue. As an avid pen and paper enthusiast, I found myself appreciating the value of having work stored online more and more. My current research interest involves respiratory rhythms in mice and relating them to different signals. 
