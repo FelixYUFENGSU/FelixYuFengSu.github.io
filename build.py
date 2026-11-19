@@ -365,14 +365,16 @@ def build():
 
     # blog index
     n = len(posts)
+    # The Blog page's own text lives in content/_blog.md (title, intro, and the
+    # `empty:` message shown while there are no posts).
+    blog_meta, blog_body = parse(ROOT / "content" / "_blog.md")
+    blog_title = blog_meta.get("title") or "Blog"
+    intro = f'<h1>{blog_title}</h1><div class="lead prose">{render_md(blog_body)}</div><hr>'
     if n:
-        intro = (f'<h1>Blog</h1><p class="lead">✍️ Notes on math, code, and the places they meet. '
-                 f'{n} article{"s" if n != 1 else ""} so far.</p><hr>')
         listing = post_list(posts)
     else:
-        intro = '<h1>Blog</h1><p class="lead">✍️ Notes on math, code, and the places they meet.</p><hr>'
-        listing = '<p class="muted">No posts yet. The first one is on its way.</p>'
-    write("blog", page(template, "Blog", intro + listing, "Blog"))
+        listing = f'<p class="muted">{blog_meta.get("empty") or "No posts yet."}</p>'
+    write("blog", page(template, blog_title, intro + listing, "Blog"))
 
     # notes
     notes = build_notes(template)

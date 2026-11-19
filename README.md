@@ -52,6 +52,7 @@ cd _site && python -m http.server 8000     # open http://localhost:8000
 | Path | What it is |
 |---|---|
 | `content/_home.md` | intro text on the home page |
+| `content/_blog.md` | the Blog page's title, intro text, and `empty:` message shown when there are no posts |
 | `content/about.md`, `content/projects.md` | standalone pages |
 | `content/projects/<repo>.md` | optional hand-written page for a repo (otherwise its README is used) |
 | `content/projects/<slug>.md` with `link:` + `date:` | a project that isn't its own repo (e.g. the Fourier banner), listed by date with the rest |
