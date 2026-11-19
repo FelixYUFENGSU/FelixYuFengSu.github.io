@@ -78,12 +78,14 @@ Structure:
 
 When unsure:
 - If a word or symbol is illegible, write <span class="unclear">[??]</span>. If you have a best guess, write it inside the span followed by a question mark, e.g. <span class="unclear">$\sup$?</span>.
-- For drawings or diagrams that can't be typeset, write: *[Figure: short description — see original page N]*
+- For each drawing, graph, or diagram, write one line on its own, where it appears in the notes:
+  [[FIGURE page=N box=X0,Y0,X1,Y1 | caption]]
+  N is the page number (counted within the current note), and the box is the drawing's bounding box in thousandths of that page's width and height (0–1000), X0,Y0 top-left and X1,Y1 bottom-right. Include the drawing's own labels and arrows, but not the surrounding paragraph text. The caption is one short sentence describing what it shows (math in $...$).
 
 Splitting and categories:
 - If the pages contain more than one separate set of notes (for example, a new title starts a different topic), output one block per set, in order. Otherwise output a single block.
 - Give each block a CATEGORY: a short subject area (1–3 words, Title Case). Reuse one of the existing categories the user lists when it fits; otherwise make a new one.
-- In figure references, number pages relative to the first page of that block (its first page is "page 1").
+- In FIGURE lines, number pages relative to the first page of that block (its first page is page 1).
 
 Reply in exactly this format and nothing else:
 === NOTE ===
@@ -201,7 +203,7 @@ def transcribe(pages: list[Image.Image], categories: list[str]) -> tuple[list[di
         fake = (
             f"=== NOTE ===\nTITLE: Fake topic one\nSUMMARY: First placeholder note.\nCATEGORY: Testing\nPAGES: 1-{half}\n---\n"
             "## Part one\n\n> **Definition 1.1** (Test). $(a_n)$ converges to $L$ if $|a_n - L| < \\varepsilon$.\n\n"
-            "*[Figure: a sketch — see original page 1]*\n"
+            "[[FIGURE page=1 box=100,100,600,400 | a test sketch of $\\hat{f}(x)$]]\n"
         )
         if len(pages) > 1:
             fake += (
@@ -232,6 +234,109 @@ def transcribe(pages: list[Image.Image], categories: list[str]) -> tuple[list[di
     )
     text = "".join(b.text for b in msg.content if b.type == "text")
     return parse_notes(text, len(pages)), {"in": msg.usage.input_tokens, "out": msg.usage.output_tokens}
+
+
+# ----------------------------------------------------------------- figures
+FIGURE_RE = re.compile(
+    r"^\[\[FIGURE\s+page=(\d+)\s+box=\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\|\s*(.*?)\]\][ \t]*$", re.M)
+FIGURE_PAD = 0.015  # extra margin around each box (fraction of the page), boxes are approximate
+
+
+def clean_sketch(img: Image.Image) -> Image.Image:
+    """Grayscale, flatten shadows and paper tint to white, keep pencil strokes dark."""
+    import numpy as np
+    from PIL import ImageFilter
+
+    gray = img.convert("L")
+    g = np.asarray(gray, dtype=np.float32)
+    bg = np.asarray(gray.filter(ImageFilter.GaussianBlur(30)), dtype=np.float32)
+    flat = np.clip(g / np.maximum(bg, 1) * 255, 0, 255)
+    flat = np.clip((flat - 150) * 255 / (235 - 150), 0, 255)
+    return Image.fromarray(flat.astype(np.uint8))
+
+
+def trim_margins(img: Image.Image, pad: tuple[int, int, int, int]) -> Image.Image:
+    """The crop is padded in case the box is a little off. If the padding caught a
+    separate strip of ink (e.g. a neighboring line of text) cut off from the drawing
+    by a blank gap, trim that strip away. pad = (left, top, right, bottom) in px."""
+    import numpy as np
+
+    ink = np.asarray(img) < 128
+
+    def cut(profile, pad_start, pad_end):
+        n = len(profile)
+        lo, hi = 0, n
+        # leading strip: ink inside the start padding, followed by a blank gap
+        has = np.nonzero(profile)[0]
+        if len(has) == 0:
+            return lo, hi
+        blank = ~profile
+        i = has[0]
+        if i < pad_start:
+            j = i
+            while j < n and profile[j]:
+                j += 1
+            k = j
+            while k < n and blank[k]:
+                k += 1
+            if j <= pad_start + 2 and k - j >= 3 and k < n:
+                lo = j + (k - j) // 2
+        i = has[-1]
+        if i >= n - pad_end:
+            j = i
+            while j >= 0 and profile[j]:
+                j -= 1
+            k = j
+            while k >= 0 and blank[k]:
+                k -= 1
+            if j >= n - pad_end - 3 and j - k >= 3 and k >= 0:
+                hi = k + (j - k) // 2 + 1
+        return lo, hi
+
+    rows = ink.sum(axis=1) > max(1, ink.shape[1] // 400)
+    top, bottom = cut(rows, pad[1], pad[3])
+    cols = ink[top:bottom].sum(axis=0) > max(1, (bottom - top) // 400)
+    left, right = cut(cols, pad[0], pad[2])
+    return img.crop((left, top, right, bottom))
+
+
+def alt_text(caption: str) -> str:
+    def plain(tex):
+        tex = re.sub(r"\\(hat|vec|mathbb|mathrm|text)\{([^}]*)\}", r"\2", tex)
+        return re.sub(r"[\\{}^_]", "", tex)
+    return re.sub(r"\$([^$]*)\$", lambda m: plain(m.group(1)), caption).replace('"', "'")
+
+
+def insert_figures(body: str, images: list[Image.Image], slug: str, out_dir: Path) -> tuple[str, int]:
+    """Replace FIGURE lines with crops of the drawing; fall back to a text note if a box is unusable."""
+    count = 0
+
+    def replace(m):
+        nonlocal count
+        page, x0, y0, x1, y1 = (int(m.group(i)) for i in range(1, 6))
+        caption = m.group(6).strip() or "Sketch"
+        caption = caption[0].upper() + caption[1:]
+        if not (1 <= page <= len(images)) or x1 <= x0 or y1 <= y0:
+            return f"*[Figure: {caption} — see original page {max(1, min(page, len(images)))}]*"
+        img = images[page - 1]
+        W, H = img.size
+        box = (
+            max(0, int((x0 / 1000 - FIGURE_PAD) * W)), max(0, int((y0 / 1000 - FIGURE_PAD) * H)),
+            min(W, int((x1 / 1000 + FIGURE_PAD) * W)), min(H, int((y1 / 1000 + FIGURE_PAD) * H)),
+        )
+        if box[2] - box[0] < 20 or box[3] - box[1] < 20:
+            return f"*[Figure: {caption} — see original page {page}]*"
+        count += 1
+        inner = (int(x0 / 1000 * W), int(y0 / 1000 * H), int(x1 / 1000 * W), int(y1 / 1000 * H))
+        pad = (inner[0] - box[0], inner[1] - box[1], box[2] - inner[2], box[3] - inner[3])
+        crop = trim_margins(clean_sketch(img.crop(box)), pad)
+        crop.thumbnail((1100, 1100))
+        crop.save(out_dir / f"fig-{count}.png", optimize=True)
+        return (f'\n<figure class="sketch"><img src="/notes/{slug}/fig-{count}.png" '
+                f'alt="Hand-drawn sketch: {alt_text(caption)}" loading="lazy">'
+                f'<figcaption><span class="fig-num">Figure {count}.</span> {caption}</figcaption></figure>\n')
+
+    return FIGURE_RE.sub(replace, body), count
 
 
 # ------------------------------------------------------- equation checking
@@ -313,18 +418,20 @@ def main() -> int:
                 f"pages: {len(note['images'])}",
                 "---",
             ]
-            out.write_text("\n".join(front) + "\n" + note["body"] + "\n", encoding="utf-8")
-
             scan_dir = SCANS / slug
             scan_dir.mkdir(parents=True, exist_ok=True)
             for i, page in enumerate(note["images"], 1):
                 (scan_dir / f"page-{i}.jpg").write_bytes(jpeg_bytes(shrink(page, KEEP_EDGE), 72))
+            note["body"], n_figures = insert_figures(note["body"], note["images"], slug, scan_dir)
+
+            out.write_text("\n".join(front) + "\n" + note["body"] + "\n", encoding="utf-8")
 
             created.append({
                 "path": out.relative_to(ROOT).as_posix(),
                 "title": note["title"],
                 "category": note["category"],
                 "pages": len(note["images"]),
+                "figures": n_figures,
                 "unclear": note["body"].count('class="unclear"'),
                 "math_errors": check_math(note["body"]),
             })
@@ -371,7 +478,8 @@ def write_outputs(created: list[dict], tokens_in: int, tokens_out: int) -> None:
         if c["math_errors"]:
             flags.append(f"❌ {len(c['math_errors'])} equation(s) don't render")
         cat = f" · category: *{c['category']}*" if c.get("category") else ""
-        lines.append(f"- **{c['title']}**: `{c['path']}` · {c['pages']} page(s){cat}"
+        figs = f" · {c['figures']} figure(s)" if c.get("figures") else ""
+        lines.append(f"- **{c['title']}**: `{c['path']}` · {c['pages']} page(s){figs}{cat}"
                      + (f" · {' · '.join(flags)}" if flags else " · ✅ all equations render"))
         for err in c["math_errors"]:
             lines.append(f"  - `{err}`")
@@ -381,6 +489,7 @@ def write_outputs(created: list[dict], tokens_in: int, tokens_out: int) -> None:
         "- Open each note under **Files changed** and compare it with the original pages "
         "(saved next to it under `static/notes/`).",
         "- Search for `[??]` and fix anything marked unclear.",
+        "- Check that each cropped figure shows the whole drawing (they're in `static/notes/<note>/fig-N.png`).",
         "- Check how the pages were split into notes and the `category:` each got "
         "(edit the front matter to change it).",
         "- Fix any equations listed above as not rendering.",

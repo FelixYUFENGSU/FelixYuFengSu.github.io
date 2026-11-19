@@ -17,6 +17,10 @@ notes-inbox/
   each a **category** (reusing ones you already have when they fit). Notes are grouped by
   category on the Notes page. To change a category, edit the `category:` line at the top of
   the note in the pull request.
+- **Drawings** are cropped out of your photos automatically and placed in the note as
+  numbered figures ("Figure 1.", "Figure 2.", …). To swap one for a clean digital version:
+  **Actions → Redraw a figure → Run workflow**, then enter the note name (the part after
+  `/notes/` in its address) and the figure number. The original crop is kept.
 - Accepted: JPG, PNG, HEIC (iPhone photos), WEBP, and PDF.
 - Start a folder's name with a date (`2026-11-20 ...`) to date the note; otherwise it uses
   the upload date. The folder name also becomes the note's web address.
