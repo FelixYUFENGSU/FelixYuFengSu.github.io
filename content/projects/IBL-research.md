@@ -1,10 +1,11 @@
 ---
-title: Mouse Breathing: Sensor Fusion and Breathing-Pause Detection
-summary: Fusing thermistor, airflow, and LFP recordings to track a mouse's breathing, then detecting breathing pauses across 8 hours of data, separating them from movement with EMG and video, and fixing a mains-hum problem that was hiding the muscle signal.
+title: Respiratory Neurophysiology (IBL)
+summary: Creating a machine learning model to fuse thermistor, airflow, and LFP recordings to track a mouse's breathing rhythm with IBL data.  
 ---
+
 A mouse's breathing was recorded by three sensors at once: a **thermistor** (temperature of the air in the nose), an **airflow sensor**, and the **LFP** (local field potential, from an epidural array on the surface of the brain). Alongside them came **EMG** (muscle activity) and **video** of the animal. Every sensor sees breathing a little differently, and every sensor fails in its own way.
 
-I worked on two questions, using four recording sessions from mouse M1 (about 8 hours at 1000 Hz) as part of a respiration + video project in the Cavelli Lab:
+In the process of applying a machine learning model to the respiratory processes of mice. I worked on two questions, using four recording sessions from mouse M1 (about 8 hours at 1000 Hz) as part of a respiration + video project in the Cavelli Lab:
 
 1. How do the three breathing sensors relate to each other, and when do they disagree?
 2. When all three lose the breathing rhythm at the same time, is that a real **pause in breathing**, or something else, like movement?
