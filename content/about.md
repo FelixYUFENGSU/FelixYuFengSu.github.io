@@ -14,4 +14,4 @@ I'm still learning to write good code, and this site is part of that. Everything
 
 ### Get in touch
 
-The best way to reach me is through [GitHub](https://github.com/FelixYUFENGSU).
+The best way to reach me: suyufeng118@gmail.com
