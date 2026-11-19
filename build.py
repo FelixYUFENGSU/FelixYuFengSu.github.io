@@ -37,7 +37,8 @@ SITE = {
 }
 GITHUB_USER = "FelixYUFENGSU"
 SKIP_REPOS = {"felixyufengsu.github.io"}   # repos never listed (lowercase)
-NAV = [("Home", "/"), ("Blog", "/blog/"), ("Notes", "/notes/"), ("About", "/about/"), ("Projects", "/projects/")]
+NAV = [("Home", "/"), ("Blog", "/blog/"), ("Notes", "/notes/"), ("Experience", "/experience/"),
+       ("Projects", "/projects/"), ("About", "/about/")]
 
 
 # ------------------------------------------------------------ helpers
@@ -341,6 +342,47 @@ def build_notes(template):
     return notes
 
 
+# ------------------------------------------------------------ experience
+# content/experience.md: each "## Name" starts an entry; the "key: value" lines
+# right under it (role, when, where, group, tags) are details, and the rest is
+# the Markdown description. "group" collects entries under their own heading.
+def render_experience(body: str) -> str:
+    body = re.sub(r"<!--.*?-->", "", body, flags=re.S)
+    entries = []
+    for chunk in re.split(r"^## +", body, flags=re.M)[1:]:
+        name, _, rest = chunk.partition("\n")
+        details, lines = {}, rest.split("\n")
+        while lines and re.match(r"^[a-z]+:\s", lines[0]):
+            key, _, value = lines.pop(0).partition(":")
+            details[key.strip()] = value.strip()
+        entries.append({"name": name.strip(), **details, "text": "\n".join(lines).strip()})
+
+    groups: dict[str, list] = {}
+    for e in entries:
+        groups.setdefault(e.get("group", ""), []).append(e)
+
+    def item(e):
+        tags = "".join(f'<span class="topic">{t.strip()}</span>' for t in e.get("tags", "").split(",") if t.strip())
+        where = f'<span class="where">{e["where"]}</span>' if e.get("where") else ""
+        return (
+            '<li class="job">'
+            f'<div class="when">{e.get("when", "")}</div>'
+            '<div class="job-body">'
+            f'<h3><span class="role">{e.get("role", "")}</span> <span class="at">·</span> '
+            f'<span class="org">{e["name"]}</span></h3>{where}'
+            f'<div class="job-text">{render_md(e["text"])}</div>'
+            + (f'<div class="topics">{tags}</div>' if tags else "")
+            + "</div></li>"
+        )
+
+    html = ""
+    for group, items in groups.items():
+        if group:
+            html += f'<h2 class="category">{group}</h2>'
+        html += '<ol class="timeline">' + "".join(item(e) for e in items) + "</ol>"
+    return html
+
+
 # ------------------------------------------------------------ build
 def build():
     if OUT.exists():
@@ -390,7 +432,7 @@ def build():
         if path.name.startswith("_"):
             continue
         meta, body = parse(path)
-        content = render_md(body)
+        content = render_experience(body) if path.stem == "experience" else render_md(body)
         if "<!-- REPOS -->" in content:
             content = content.replace("<!-- REPOS -->", repo_cards(projects))
         html = f'<h1>{meta["title"]}</h1><div class="prose">{content}</div>'

@@ -132,3 +132,22 @@ h2.category ~ h2.category { margin-top: 48px; }
   box-shadow: none; border-radius: 6px; border: 1px solid var(--faint); background: #fff; }
 .note figure.sketch figcaption { margin-top: 8px; font-size: 13.5px; line-height: 1.5; color: var(--muted); }
 .note figure.sketch .fig-num { font-weight: 600; color: var(--ink); }
+
+/* ---------- experience timeline ---------- */
+.timeline { list-style: none; margin: 8px 0 40px; padding: 0; }
+.job { display: grid; grid-template-columns: 150px 1fr; gap: 24px; padding: 26px 0; border-bottom: 1px solid var(--faint); }
+.job:first-child { padding-top: 6px; }
+.job:last-child { border-bottom: 0; }
+.job .when { color: var(--muted); font-size: 14px; padding-top: 3px; font-variant-numeric: tabular-nums; }
+.job h3 { margin: 0; font-size: 18px; line-height: 1.35; }
+.job .role { font-weight: 700; }
+.job .at { color: var(--muted); font-weight: 400; margin: 0 2px; }
+.job .org { font-weight: 500; }
+.job .where { display: block; color: var(--muted); font-size: 14px; margin-top: 2px; }
+.job .job-text p { margin: 12px 0 0; font-size: 15.5px; }
+.job .job-text ul { margin: 10px 0 0; padding-left: 20px; font-size: 15.5px; }
+.job .job-text li { margin: 5px 0; }
+.job .topics { margin-top: 14px; }
+@media (max-width: 640px) {
+  .job { grid-template-columns: 1fr; gap: 4px; }
+}
