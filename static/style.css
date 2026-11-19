@@ -122,3 +122,6 @@ footer { text-align: center; color: #999; font-size: 13px; padding: 30px 20px 50
 .scans summary { cursor: pointer; font-size: 14px; }
 .scans div { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; margin-top: 14px; }
 .scans img { width: 100%; margin: 0; border-radius: 4px; box-shadow: 0 1px 6px rgba(0,0,0,.15); }
+
+h2.category { font-size: 14px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin: 6px 0 22px; font-weight: 600; }
+h2.category ~ h2.category { margin-top: 48px; }

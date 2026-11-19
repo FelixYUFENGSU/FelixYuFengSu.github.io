@@ -13,6 +13,10 @@ notes-inbox/
   IMG_0412.HEIC                  ← loose photos uploaded together = one note
 ```
 
+- If one upload covers more than one topic, Claude splits it into separate notes and gives
+  each a **category** (reusing ones you already have when they fit). Notes are grouped by
+  category on the Notes page. To change a category, edit the `category:` line at the top of
+  the note in the pull request.
 - Accepted: JPG, PNG, HEIC (iPhone photos), WEBP, and PDF.
 - Start a folder's name with a date (`2026-11-20 ...`) to date the note; otherwise it uses
   the upload date. The folder name also becomes the note's web address.
