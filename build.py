@@ -365,9 +365,14 @@ def build():
 
     # blog index
     n = len(posts)
-    intro = (f'<h1>Blog</h1><p class="lead">✍️ Notes on math, code, and the places they meet. '
-             f'{n} article{"s" if n != 1 else ""} so far.</p><hr>')
-    write("blog", page(template, "Blog", intro + post_list(posts), "Blog"))
+    if n:
+        intro = (f'<h1>Blog</h1><p class="lead">✍️ Notes on math, code, and the places they meet. '
+                 f'{n} article{"s" if n != 1 else ""} so far.</p><hr>')
+        listing = post_list(posts)
+    else:
+        intro = '<h1>Blog</h1><p class="lead">✍️ Notes on math, code, and the places they meet.</p><hr>'
+        listing = '<p class="muted">No posts yet. The first one is on its way.</p>'
+    write("blog", page(template, "Blog", intro + listing, "Blog"))
 
     # notes
     notes = build_notes(template)
@@ -395,8 +400,7 @@ def build():
         '<figure class="banner"><img src="/banner-light.svg" '
         'alt="My name, Felix Su, written by a chain of spinning Fourier circles"></figure>'
         f'<div class="prose home">{render_md(body)}</div>'
-        '<h3 class="section">Recent writing</h3>'
-        + post_list(posts[:5])
+        + ('<h3 class="section">Recent writing</h3>' + post_list(posts[:5]) if posts else "")
     )
     write("", page(template, SITE["name"], home, "Home"))
     (OUT / ".nojekyll").touch()
