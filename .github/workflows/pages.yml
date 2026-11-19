@@ -3,6 +3,7 @@ name: Build and deploy site
 on:
   push:
     branches: [main]
+    paths-ignore: ["notes-inbox/**"]   # scans go to the transcription workflow instead
   workflow_dispatch:
   schedule:
     - cron: "17 10 * * *"   # daily rebuild so the Projects page stays current

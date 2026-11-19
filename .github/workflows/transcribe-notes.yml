@@ -1,0 +1,80 @@
+name: Transcribe scanned notes
+
+# Upload scans to notes-inbox/<course>/ on main → this transcribes them with
+# Claude and opens (or updates) a pull request with the draft notes to review.
+on:
+  push:
+    branches: [main]
+    paths: ["notes-inbox/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: transcribe-notes
+  cancel-in-progress: false
+
+env:
+  REVIEW_BRANCH: notes/review
+
+jobs:
+  transcribe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # While a review is open, new scans are added to the same branch (keeping any
+      # edits you made there); once it's merged, the next batch starts fresh from main.
+      - name: Switch to the review branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "notes-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          open_pr=$(gh pr list --head "$REVIEW_BRANCH" --state open --json number --jq '.[0].number')
+          if [ -n "$open_pr" ]; then
+            git fetch origin "$REVIEW_BRANCH"
+            git checkout -B "$REVIEW_BRANCH" "origin/$REVIEW_BRANCH"
+            git merge --no-edit origin/main
+          else
+            git checkout -B "$REVIEW_BRANCH" origin/main
+          fi
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install tools
+        run: |
+          pip install -r scripts/requirements-notes.txt
+          npm install --no-save --prefix "$RUNNER_TEMP/katex" katex@0.16.11
+
+      - name: Transcribe
+        id: transcribe
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          KATEX_DIR: ${{ runner.temp }}/katex/node_modules/katex
+          PR_BODY_FILE: ${{ runner.temp }}/pr-body.md
+        run: python scripts/transcribe_notes.py
+
+      - name: Commit drafts and open the pull request
+        if: steps.transcribe.outputs.created == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: ${{ steps.transcribe.outputs.title }}
+        run: |
+          git add -A content/notes static/notes notes-inbox
+          git commit -m "$TITLE"
+          git push --force-with-lease origin "$REVIEW_BRANCH"
+          existing=$(gh pr list --head "$REVIEW_BRANCH" --state open --json number --jq '.[0].number')
+          if [ -n "$existing" ]; then
+            gh pr comment "$existing" --body-file "$RUNNER_TEMP/pr-body.md"
+            echo "Updated pull request #$existing" >> "$GITHUB_STEP_SUMMARY"
+          else
+            gh pr create --base main --head "$REVIEW_BRANCH" \
+              --title "Review transcribed notes" --body-file "$RUNNER_TEMP/pr-body.md"
+          fi

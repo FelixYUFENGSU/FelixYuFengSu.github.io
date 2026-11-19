@@ -113,3 +113,14 @@ footer { text-align: center; color: #999; font-size: 13px; padding: 30px 20px 50
 .prose .repo a.card-link { color: var(--ink); text-decoration: none; }
 .repo a.card-link::after { content: ""; position: absolute; inset: 0; border-radius: 10px; }
 .repo-meta a { position: relative; z-index: 1; }
+
+/* ---------- notes ---------- */
+h2.course { font-size: 15px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin: 8px 0 22px; font-weight: 600; }
+h2.course ~ h2.course { margin-top: 44px; }
+.note blockquote { border-left: 3px solid var(--accent); background: #f6f8ff; color: var(--ink); padding: 10px 16px; margin: 20px 0; border-radius: 0 6px 6px 0; }
+.note blockquote p { margin: 6px 0; }
+.note .unclear { background: #fff3c4; border-radius: 3px; padding: 0 3px; }
+.scans { margin-top: 48px; border-top: 1px solid var(--faint); padding-top: 16px; color: var(--muted); }
+.scans summary { cursor: pointer; font-size: 14px; }
+.scans div { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; margin-top: 14px; }
+.scans img { width: 100%; margin: 0; border-radius: 4px; box-shadow: 0 1px 6px rgba(0,0,0,.15); }

@@ -23,6 +23,18 @@ My personal site and blog, built by a small Python script (`build.py`) and publi
 
 Every public repo on my GitHub gets its own page at `/projects/<repo>/`, built from its README with setup and install sections removed. To write a project's page yourself, add `content/projects/<repo-name>.md` with a `title:` and `summary:` in the front matter. The list refreshes daily.
 
+## Notes (scanned handwriting → LaTeX)
+
+Upload scans to `notes-inbox/<course>/<lecture>/` (JPG, PNG, HEIC or PDF). The
+**Transcribe scanned notes** workflow sends them to Claude, writes drafts to
+`content/notes/<course>/`, keeps compressed copies of the pages in `static/notes/`,
+test-renders every equation with KaTeX, and opens a pull request on the
+`notes/review` branch. Check the draft against the originals, fix anything marked
+`[??]`, and merge to publish under `/notes/`. Details in `notes-inbox/README.md`.
+
+Needs a repository secret `ANTHROPIC_API_KEY`. Model and image size can be changed
+with `NOTES_MODEL` / `NOTES_MAX_EDGE` (see `scripts/transcribe_notes.py`).
+
 ## Preview locally
 
 ```bash

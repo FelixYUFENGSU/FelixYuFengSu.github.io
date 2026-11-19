@@ -1,0 +1,4 @@
+anthropic>=0.40
+pillow>=10
+pillow-heif>=0.18
+pypdfium2>=4.30

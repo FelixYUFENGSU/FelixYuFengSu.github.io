@@ -37,7 +37,7 @@ SITE = {
 }
 GITHUB_USER = "FelixYUFENGSU"
 SKIP_REPOS = {"felixyufengsu.github.io"}   # repos never listed (lowercase)
-NAV = [("Home", "/"), ("Blog", "/blog/"), ("About", "/about/"), ("Projects", "/projects/")]
+NAV = [("Home", "/"), ("Blog", "/blog/"), ("Notes", "/notes/"), ("About", "/about/"), ("Projects", "/projects/")]
 
 
 # ------------------------------------------------------------ helpers
@@ -287,6 +287,58 @@ def project_page(template, p):
     return page(template, p["title"], html, "Projects")
 
 
+# ------------------------------------------------------------ notes
+# content/notes/<course>/YYYY-MM-DD-<slug>.md -> /notes/<course>/<slug>/
+# Optional content/notes/<course>/_course.md (front matter: title) names the course.
+# Scanned originals, if kept, live in static/notes/<course>/<slug>/page-N.jpg.
+def build_notes(template):
+    root = ROOT / "content" / "notes"
+    courses = []
+    if not root.exists():
+        return courses
+    for course_dir in sorted(p for p in root.iterdir() if p.is_dir()):
+        course = course_dir.name
+        info = course_dir / "_course.md"
+        course_title = parse(info)[0].get("title") if info.exists() else None
+        course_title = course_title or pretty(course)
+        notes = []
+        for path in sorted(course_dir.glob("*.md")):
+            if path.name.startswith("_"):
+                continue
+            meta, body = parse(path)
+            if meta.get("draft", "").lower() == "true":
+                continue
+            slug = path.stem[11:] if re.match(r"\d{4}-\d{2}-\d{2}-", path.stem) else path.stem
+            meta["href"] = f"/notes/{course}/{slug}/"
+            meta.setdefault("date", path.stem[:10])
+            notes.append(meta)
+            originals = sorted((ROOT / "static" / "notes" / course / slug).glob("page-*.jpg"))
+            scans = ""
+            if originals:
+                thumbs = "".join(
+                    f'<a href="/notes/{course}/{slug}/{img.name}"><img src="/notes/{course}/{slug}/{img.name}" '
+                    f'alt="Page {i + 1} of the handwritten original" loading="lazy"></a>'
+                    for i, img in enumerate(originals)
+                )
+                scans = f'<details class="scans"><summary>Original handwritten pages ({len(originals)})</summary><div>{thumbs}</div></details>'
+            html = (f'<article class="post note"><time>{course_title} · {nice_date(meta["date"])}</time>'
+                    f'<h1>{meta["title"]}</h1>{render_md(body)}{scans}</article>'
+                    f'<p class="back"><a href="/notes/">← All notes</a></p>')
+            write(f"notes/{course}/{slug}", page(template, meta["title"], html, "Notes"))
+        notes.sort(key=lambda m: m["date"], reverse=True)
+        if notes:
+            courses.append({"course": course, "title": course_title, "notes": notes})
+
+    sections = "".join(
+        f'<h2 class="course">{c["title"]}</h2>' + post_list(c["notes"]) for c in courses
+    ) or '<p class="muted">Notes coming soon.</p>'
+    total = sum(len(c["notes"]) for c in courses)
+    intro = (f'<h1>Notes</h1><p class="lead">📝 Lecture notes, scanned from paper and transcribed to LaTeX. '
+             f'{total} note{"s" if total != 1 else ""} so far.</p><hr>')
+    write("notes", page(template, "Notes", intro + sections, "Notes"))
+    return courses
+
+
 # ------------------------------------------------------------ build
 def build():
     if OUT.exists():
@@ -314,6 +366,9 @@ def build():
     intro = (f'<h1>Blog</h1><p class="lead">✍️ Notes on math, code, and the places they meet. '
              f'{n} article{"s" if n != 1 else ""} so far.</p><hr>')
     write("blog", page(template, "Blog", intro + post_list(posts), "Blog"))
+
+    # notes
+    courses = build_notes(template)
 
     # project pages (one per GitHub repo)
     projects = load_projects()
@@ -343,7 +398,8 @@ def build():
     )
     write("", page(template, SITE["name"], home, "Home"))
     (OUT / ".nojekyll").touch()
-    print(f"built {n} post(s) and {len(projects)} project page(s) into {OUT}")
+    n_notes = sum(len(c["notes"]) for c in courses)
+    print(f"built {n} post(s), {n_notes} note(s) and {len(projects)} project page(s) into {OUT}")
 
 
 if __name__ == "__main__":
