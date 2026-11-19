@@ -42,7 +42,7 @@ tags: LangChain, Vertex AI, Elasticsearch, Prompt design
 Worked on a feature that let users ask questions about their data in plain English instead of writing queries.
 
 - Built the layer that translates a natural-language question into an Elasticsearch SQL query, using LangChain and Google Cloud's Vertex AI, so it worked across data sources with different schemas.
-- Wrote reusable prompt templates and tested them with the engineering team, which reduced misread questions by about 20% and response time by about 30%.
+- Wrote reusable prompt templates and tested them with the engineering team, which reduced misread questions by about 20%.
 
 ## UCLA Women's Basketball
 role: Scout Player
