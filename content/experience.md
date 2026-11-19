@@ -44,6 +44,18 @@ Worked on a feature that let users ask questions about their data in plain Engli
 - Built the layer that translates a natural-language question into an Elasticsearch SQL query, using LangChain and Google Cloud's Vertex AI, so it worked across data sources with different schemas.
 - Wrote reusable prompt templates and tested them with the engineering team, which reduced misread questions by about 20%.
 
+## IMC Prosperity Trading Challenge
+role: Finalist, top 4% (383rd of 10,000+ teams)
+when: 2025
+group: Competitions
+tags: Python, Market making, Time series, Order books
+
+IMC's global algorithmic trading competition: each round you write a Python trading bot that trades in a market simulated by IMC, and teams are ranked by profit.
+
+- Wrote trading bots that estimate each product's fair value from recent prices (smoothed with moving averages) and quote buy and sell orders around it, adjusting the spread as conditions change.
+- Balanced profit against risk by keeping inventory within the position limits, so the bot didn't get stuck holding too much of one product.
+- Also traded the manual rounds, reading order-book depth and fees to decide where to place limit orders.
+
 ## UCLA Women's Basketball
 role: Scout Player
 when: Jun. 2022–Aug. 2025
