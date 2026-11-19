@@ -115,8 +115,6 @@ footer { text-align: center; color: #999; font-size: 13px; padding: 30px 20px 50
 .repo-meta a { position: relative; z-index: 1; }
 
 /* ---------- notes ---------- */
-h2.course { font-size: 15px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin: 8px 0 22px; font-weight: 600; }
-h2.course ~ h2.course { margin-top: 44px; }
 .note blockquote { border-left: 3px solid var(--accent); background: #f6f8ff; color: var(--ink); padding: 10px 16px; margin: 20px 0; border-radius: 0 6px 6px 0; }
 .note blockquote p { margin: 6px 0; }
 .note .unclear { background: #fff3c4; border-radius: 3px; padding: 0 3px; }

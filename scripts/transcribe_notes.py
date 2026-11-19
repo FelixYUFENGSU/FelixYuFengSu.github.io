@@ -3,14 +3,13 @@ Transcribe scanned handwritten notes into blog-ready Markdown + LaTeX.
 
 Drop scans into notes-inbox/:
 
-    notes-inbox/<course>/<lecture>/page1.jpg, page2.jpg ...   -> one note per folder
-    notes-inbox/<course>/scan.pdf                              -> one note per PDF
-    notes-inbox/<course>/photo.jpg                             -> loose photos in a course
-                                                                  folder become one note
+    notes-inbox/<name>/page1.jpg, page2.jpg ...   -> one note per folder
+    notes-inbox/scan.pdf                           -> one note per PDF
+    notes-inbox/photo.jpg                          -> loose photos together become one note
 
 Each note is sent to Claude (all its pages in one request, in filename order) and
-written to content/notes/<course>/YYYY-MM-DD-<slug>.md. Compressed copies of the
-pages go to static/notes/<course>/<slug>/ so readers can compare with the
+written to content/notes/YYYY-MM-DD-<slug>.md. Compressed copies of the
+pages go to static/notes/<slug>/ so readers can compare with the
 original, every equation is test-rendered with KaTeX, and the scans are removed
 from the inbox. A summary for the pull request is written to $PR_BODY_FILE.
 
@@ -56,7 +55,7 @@ PRICE_IN, PRICE_OUT = 2.0, 10.0
 
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
 
-SYSTEM_PROMPT = r"""You transcribe photographed handwritten university mathematics notes into Markdown for a blog that renders math with KaTeX.
+SYSTEM_PROMPT = r"""You transcribe photographed handwritten notes (usually mathematics) into Markdown for a blog that renders math with KaTeX.
 
 Faithfulness comes first:
 - Transcribe exactly what is written. Do not correct, complete, simplify, or "improve" the mathematics. If the notes contain an error, keep it.
@@ -125,36 +124,29 @@ def jpeg_bytes(img: Image.Image, quality: int) -> bytes:
 
 
 def find_jobs() -> list[dict]:
-    """Group inbox files into notes: a folder, a PDF, or a course's loose photos."""
-    jobs = []
+    """Group inbox files into notes: each folder, each PDF, and all loose photos."""
+    jobs, loose = [], []
     if not INBOX.exists():
         return jobs
-    for course_dir in sorted(p for p in INBOX.iterdir() if p.is_dir()):
-        course = slugify(course_dir.name)
-        course_title = course_dir.name.strip()
-        loose = []
-        for entry in sorted(course_dir.iterdir(), key=natural_key):
-            if entry.is_dir():
-                files = sorted(
-                    (f for f in entry.iterdir() if f.suffix.lower() in IMAGE_EXT | {".pdf"}),
-                    key=natural_key,
-                )
-                if files:
-                    jobs.append({"course": course, "course_title": course_title, "name": entry.name,
-                                 "files": files, "remove": [entry]})
-            elif entry.suffix.lower() == ".pdf":
-                jobs.append({"course": course, "course_title": course_title, "name": entry.stem,
-                             "files": [entry], "remove": [entry]})
-            elif entry.suffix.lower() in IMAGE_EXT:
-                loose.append(entry)
-        if loose:
-            jobs.append({"course": course, "course_title": course_title, "name": None,
-                         "files": loose, "remove": loose})
+    for entry in sorted(INBOX.iterdir(), key=natural_key):
+        if entry.is_dir():
+            files = sorted(
+                (f for f in entry.rglob("*") if f.is_file() and f.suffix.lower() in IMAGE_EXT | {".pdf"}),
+                key=natural_key,
+            )
+            if files:
+                jobs.append({"name": entry.name, "files": files, "remove": [entry]})
+        elif entry.suffix.lower() == ".pdf":
+            jobs.append({"name": entry.stem, "files": [entry], "remove": [entry]})
+        elif entry.suffix.lower() in IMAGE_EXT:
+            loose.append(entry)
+    if loose:
+        jobs.append({"name": None, "files": loose, "remove": loose})
     return jobs
 
 
 # --------------------------------------------------------------- the model
-def transcribe(pages: list[Image.Image], course: str) -> tuple[str, str, str, dict]:
+def transcribe(pages: list[Image.Image]) -> tuple[str, str, str, dict]:
     if os.environ.get("NOTES_FAKE") == "1":
         body = (
             "## Placeholder\n\n> **Definition 1.1** (Test). A sequence $(a_n)$ converges to $L$ if for every "
@@ -174,7 +166,7 @@ def transcribe(pages: list[Image.Image], course: str) -> tuple[str, str, str, di
         content.append({"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": data}})
     content.append({
         "type": "text",
-        "text": f"These are pages 1–{len(pages)} of one set of notes, in order, for the course “{course}”. "
+        "text": f"These are pages 1–{len(pages)} of one set of notes, in order. "
                 "Transcribe them following the instructions.",
     })
     msg = client.messages.create(
@@ -231,12 +223,12 @@ def main() -> int:
 
     for job in jobs:
         pages = [p for f in job["files"] for p in load_pages(f)]
-        print(f"→ {job['course']}: {job['name'] or 'loose photos'} ({len(pages)} page(s))")
+        print(f"→ {job['name'] or 'loose photos'} ({len(pages)} page(s))")
         parts = [pages[i:i + MAX_PAGES_PER_REQUEST] for i in range(0, len(pages), MAX_PAGES_PER_REQUEST)]
         title = summary = None
         bodies = []
         for chunk in parts:
-            t, s, body, usage = transcribe(chunk, job["course"])
+            t, s, body, usage = transcribe(chunk)
             title, summary = title or t, summary or s
             bodies.append(body)
             total_in += usage["in"]
@@ -245,11 +237,8 @@ def main() -> int:
 
         when = leading_date(job["name"] or "") or date.today().isoformat()
         slug = slugify(job["name"]) if job["name"] else slugify(title)
-        out_dir = NOTES / job["course"]
+        out_dir = NOTES
         out_dir.mkdir(parents=True, exist_ok=True)
-        course_info = out_dir / "_course.md"
-        if not course_info.exists():  # remember the folder's original name as the course title
-            course_info.write_text(f"---\ntitle: {job['course_title']}\n---\n", encoding="utf-8")
         out = out_dir / f"{when}-{slug}.md"
         n = 2
         while out.exists():  # never overwrite an existing note
@@ -267,7 +256,7 @@ def main() -> int:
             encoding="utf-8",
         )
 
-        scan_dir = SCANS / job["course"] / slug
+        scan_dir = SCANS / slug
         scan_dir.mkdir(parents=True, exist_ok=True)
         for i, page in enumerate(pages, 1):
             (scan_dir / f"page-{i}.jpg").write_bytes(jpeg_bytes(shrink(page, KEEP_EDGE), 72))
@@ -291,7 +280,7 @@ def main() -> int:
             "math_errors": check_math(body),
         })
 
-    # Empty course folders left behind in the inbox.
+    # Empty folders left behind in the inbox.
     if INBOX.exists():
         for d in sorted((p for p in INBOX.rglob("*") if p.is_dir()), reverse=True):
             if not any(d.iterdir()):

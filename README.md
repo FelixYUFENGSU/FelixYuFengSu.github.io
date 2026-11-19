@@ -25,9 +25,9 @@ Every public repo on my GitHub gets its own page at `/projects/<repo>/`, built f
 
 ## Notes (scanned handwriting → LaTeX)
 
-Upload scans to `notes-inbox/<course>/<lecture>/` (JPG, PNG, HEIC or PDF). The
-**Transcribe scanned notes** workflow sends them to Claude, writes drafts to
-`content/notes/<course>/`, keeps compressed copies of the pages in `static/notes/`,
+Upload scans to `notes-inbox/` (JPG, PNG, HEIC or PDF; a folder of photos is one
+note). The **Transcribe scanned notes** workflow sends them to Claude, writes drafts to
+`content/notes/`, keeps compressed copies of the pages in `static/notes/`,
 test-renders every equation with KaTeX, and opens a pull request on the
 `notes/review` branch. Check the draft against the originals, fix anything marked
 `[??]`, and merge to publish under `/notes/`. Details in `notes-inbox/README.md`.
