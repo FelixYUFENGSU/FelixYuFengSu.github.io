@@ -225,6 +225,25 @@ def load_projects():
             "body": body,
             "href": f"/projects/{r['name']}/",
         })
+
+    # Hand-written entries that aren't their own repo (e.g. the Fourier banner):
+    # content/projects/<slug>.md with `link:` and `date:` in the front matter.
+    repo_names = {r["name"] for r in repos}
+    for path in sorted((ROOT / "content" / "projects").glob("*.md")):
+        if path.stem in repo_names:
+            continue
+        meta, _ = parse(path)
+        if not meta.get("link") or not meta.get("date"):
+            continue
+        projects.append({
+            "name": path.stem, "title": meta.get("title") or pretty(path.stem),
+            "summary": meta.get("summary", ""), "body": "", "href": meta["link"],
+            "language": meta.get("language"), "topics": [], "homepage": "",
+            "pushed": meta["date"], "external": True,
+        })
+
+    # One list, most recently updated first.
+    projects.sort(key=lambda p: p["pushed"], reverse=True)
     return projects
 
 
@@ -247,11 +266,13 @@ def repo_cards(projects):
     for p in projects:
         topics = "".join(f'<span class="topic">{t}</span>' for t in p["topics"])
         summary = p["summary"] or '<span class="muted">Write-up coming soon.</span>'
+        # The whole card is clickable via the title link's stretched ::after, so
+        # other links (like "Live demo") can sit inside it without nesting <a> tags.
         cards.append(
-            f'<a class="repo" href="{p["href"]}"><h3>{p["title"]}</h3>'
+            f'<div class="repo"><h3><a class="card-link" href="{p["href"]}">{p["title"]}</a></h3>'
             f'<p>{summary}</p>'
             + (f'<div class="topics">{topics}</div>' if topics else "")
-            + f'<div class="repo-meta">{meta_line(p)}<span class="links">Read more →</span></div></a>'
+            + f'<div class="repo-meta">{meta_line(p)}<span class="links">Read more →</span></div></div>'
         )
     return "".join(cards)
 
@@ -297,7 +318,8 @@ def build():
     # project pages (one per GitHub repo)
     projects = load_projects()
     for p in projects:
-        write(f"projects/{p['name']}", project_page(template, p))
+        if not p.get("external"):
+            write(f"projects/{p['name']}", project_page(template, p))
 
     # standalone pages
     for path in (ROOT / "content").glob("*.md"):

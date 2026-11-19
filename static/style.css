@@ -107,3 +107,9 @@ footer { text-align: center; color: #999; font-size: 13px; padding: 30px 20px 50
 
 /* screenshots in posts and project pages */
 .post img { display: block; width: 100%; border-radius: 8px; margin: 22px 0; box-shadow: 0 4px 18px rgba(0,0,0,.12); }
+
+/* clickable project cards (one real link stretched over the card) */
+.repo { position: relative; cursor: pointer; }
+.prose .repo a.card-link { color: var(--ink); text-decoration: none; }
+.repo a.card-link::after { content: ""; position: absolute; inset: 0; border-radius: 10px; }
+.repo-meta a { position: relative; z-index: 1; }

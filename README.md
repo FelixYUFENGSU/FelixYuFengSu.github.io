@@ -38,6 +38,7 @@ cd _site && python -m http.server 8000     # open http://localhost:8000
 | `content/_home.md` | intro text on the home page |
 | `content/about.md`, `content/projects.md` | standalone pages |
 | `content/projects/<repo>.md` | optional hand-written page for a repo (otherwise its README is used) |
+| `content/projects/<slug>.md` with `link:` + `date:` | a project that isn't its own repo (e.g. the Fourier banner), listed by date with the rest |
 | `content/posts/` | blog posts |
 | `templates/base.html` | page shell (nav, footer) |
 | `static/` | CSS, KaTeX, the banner SVG |
