@@ -1,0 +1,53 @@
+name: Redraw a figure
+
+# Turns one cropped hand-drawn figure into a clean SVG.
+# Actions → Redraw a figure → Run workflow, then fill in the boxes.
+on:
+  workflow_dispatch:
+    inputs:
+      note:
+        description: "Note name: the part after /notes/ in its address (e.g. wavelets)"
+        required: true
+      figure:
+        description: "Figure number (fig-N in the note, counting from the top: 1, 2, 3, ...)"
+        required: true
+      branch:
+        description: "Branch to update: notes/review while the note is still in a pull request, main once it's published"
+        required: true
+        default: notes/review
+
+permissions:
+  contents: write
+
+jobs:
+  redraw:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install anthropic
+
+      - name: Redraw
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          NOTE: ${{ inputs.note }}
+          FIGURE: ${{ inputs.figure }}
+        run: python scripts/redraw_figure.py "$NOTE" "$FIGURE"
+
+      - name: Commit
+        env:
+          NOTE: ${{ inputs.note }}
+          FIGURE: ${{ inputs.figure }}
+          BRANCH: ${{ inputs.branch }}
+        run: |
+          git config user.name "notes-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A static/notes content/notes
+          git commit -m "Redraw figure $FIGURE of $NOTE as SVG"
+          git push origin "HEAD:$BRANCH"

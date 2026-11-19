@@ -289,6 +289,7 @@ def project_page(template, p):
 
 # ------------------------------------------------------------ notes
 # content/notes/YYYY-MM-DD-<slug>.md -> /notes/<slug>/
+# A `category:` in the front matter groups notes on /notes/ (newest category first).
 # Scanned originals, if kept, live in static/notes/<slug>/page-N.jpg.
 def build_notes(template):
     root = ROOT / "content" / "notes"
@@ -314,7 +315,8 @@ def build_notes(template):
             )
             scans = (f'<details class="scans"><summary>Original handwritten pages ({len(originals)})</summary>'
                      f'<div>{thumbs}</div></details>')
-        html = (f'<article class="post note"><time>{nice_date(meta["date"])}</time>'
+        where = f'{meta["category"]} · ' if meta.get("category") else ""
+        html = (f'<article class="post note"><time>{where}{nice_date(meta["date"])}</time>'
                 f'<h1>{meta["title"]}</h1>{render_md(body)}{scans}</article>'
                 f'<p class="back"><a href="/notes/">← All notes</a></p>')
         write(f"notes/{slug}", page(template, meta["title"], html, "Notes"))
@@ -323,7 +325,18 @@ def build_notes(template):
     n = len(notes)
     intro = (f'<h1>Notes</h1><p class="lead">📝 Handwritten notes, scanned from paper and transcribed to LaTeX. '
              f'{n} note{"s" if n != 1 else ""} so far.</p><hr>')
-    listing = post_list(notes) if notes else '<p class="muted">Notes coming soon.</p>'
+    groups: dict[str, list] = {}
+    for m in notes:  # notes are newest-first, so groups come out ordered by latest note
+        groups.setdefault(m.get("category") or "", []).append(m)
+    if not notes:
+        listing = '<p class="muted">Notes coming soon.</p>'
+    elif list(groups) == [""]:
+        listing = post_list(notes)
+    else:
+        named = [(c, ms) for c, ms in groups.items() if c]
+        if "" in groups:
+            named.append(("Other notes", groups[""]))
+        listing = "".join(f'<h2 class="category">{c}</h2>' + post_list(ms) for c, ms in named)
     write("notes", page(template, "Notes", intro + listing, "Notes"))
     return notes
 

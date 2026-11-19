@@ -8,7 +8,9 @@ Drop scans into notes-inbox/:
     notes-inbox/photo.jpg                          -> loose photos together become one note
 
 Each note is sent to Claude (all its pages in one request, in filename order) and
-written to content/notes/YYYY-MM-DD-<slug>.md. Compressed copies of the
+written to content/notes/YYYY-MM-DD-<slug>.md. If the pages hold more than one
+topic, Claude splits them into separate notes and suggests a category for each
+(reusing existing categories when they fit). Compressed copies of the
 pages go to static/notes/<slug>/ so readers can compare with the
 original, every equation is test-rendered with KaTeX, and the scans are removed
 from the inbox. A summary for the pull request is written to $PR_BODY_FILE.
@@ -76,13 +78,24 @@ Structure:
 
 When unsure:
 - If a word or symbol is illegible, write <span class="unclear">[??]</span>. If you have a best guess, write it inside the span followed by a question mark, e.g. <span class="unclear">$\sup$?</span>.
-- For drawings or diagrams that can't be typeset, write: *[Figure: short description — see original page N]*
+- For each drawing, graph, or diagram, write one line on its own, where it appears in the notes:
+  [[FIGURE page=N box=X0,Y0,X1,Y1 | caption]]
+  N is the page number (counted within the current note), and the box is the drawing's bounding box in thousandths of that page's width and height (0–1000), X0,Y0 top-left and X1,Y1 bottom-right. Include the drawing's own labels and arrows, but not the surrounding paragraph text. The caption is one short sentence describing what it shows (math in $...$).
+
+Splitting and categories:
+- If the pages contain more than one separate set of notes (for example, a new title starts a different topic), output one block per set, in order. Otherwise output a single block.
+- Give each block a CATEGORY: a short subject area (1–3 words, Title Case). Reuse one of the existing categories the user lists when it fits; otherwise make a new one.
+- In FIGURE lines, number pages relative to the first page of that block (its first page is page 1).
 
 Reply in exactly this format and nothing else:
-TITLE: <short descriptive title for these notes>
-SUMMARY: <one sentence describing what the notes cover>
+=== NOTE ===
+TITLE: <short descriptive title>
+SUMMARY: <one sentence describing what these notes cover>
+CATEGORY: <category>
+PAGES: <first>-<last>
 ---
-<the Markdown body>"""
+<the Markdown body>
+"""
 
 
 # ------------------------------------------------------------------ helpers
@@ -146,15 +159,58 @@ def find_jobs() -> list[dict]:
 
 
 # --------------------------------------------------------------- the model
-def transcribe(pages: list[Image.Image]) -> tuple[str, str, str, dict]:
+def existing_categories() -> list[str]:
+    cats = set()
+    for path in NOTES.glob("*.md"):
+        m = re.search(r"^category:\s*(.+)$", path.read_text(encoding="utf-8"), re.M)
+        if m:
+            cats.add(m.group(1).strip())
+    return sorted(cats)
+
+
+def parse_notes(text: str, n_pages: int) -> list[dict]:
+    """Split the model's reply into note blocks."""
+    blocks = [b for b in re.split(r"^\s*=== NOTE ===\s*$", text, flags=re.M) if b.strip()]
+    notes = []
+    for block in blocks:
+        m = re.match(r"\s*TITLE:\s*(.+?)\s*\n\s*SUMMARY:\s*(.+?)\s*\n\s*CATEGORY:\s*(.+?)\s*\n"
+                     r"\s*PAGES:\s*(\d+)\s*(?:[-–]\s*(\d+))?\s*\n\s*---\s*\n(.*)", block, re.S)
+        if not m:
+            continue
+        first = int(m.group(4))
+        last = int(m.group(5) or first)
+        notes.append({"title": m.group(1).strip(), "summary": m.group(2).strip(),
+                      "category": m.group(3).strip(), "pages": (first, last), "body": m.group(6).strip()})
+    if not notes:  # model ignored the format: keep everything as one note
+        notes = [{"title": "Untitled notes", "summary": "", "category": "", "pages": (1, n_pages),
+                  "body": text.strip()}]
+    # Clamp page ranges to what was sent and make them cover every page.
+    for i, note in enumerate(notes):
+        lo, hi = note["pages"]
+        lo = max(1, min(lo, n_pages))
+        hi = max(lo, min(hi, n_pages))
+        if i == 0:
+            lo = 1
+        if i == len(notes) - 1:
+            hi = n_pages
+        note["pages"] = (lo, hi)
+    return notes
+
+
+def transcribe(pages: list[Image.Image], categories: list[str]) -> tuple[list[dict], dict]:
     if os.environ.get("NOTES_FAKE") == "1":
-        body = (
-            "## Placeholder\n\n> **Definition 1.1** (Test). A sequence $(a_n)$ converges to $L$ if for every "
-            "$\\varepsilon > 0$ there is $N$ with $|a_n - L| < \\varepsilon$ for all $n \\geq N$.\n\n"
-            "*Proof.* Trivial. $\\blacksquare$\n\nAn unclear symbol: <span class=\"unclear\">[??]</span>\n\n"
-            "$$\\begin{aligned} f(x) &= x^2 \\\\ f'(x) &= 2x \\end{aligned}$$\n"
+        half = max(1, len(pages) // 2)
+        fake = (
+            f"=== NOTE ===\nTITLE: Fake topic one\nSUMMARY: First placeholder note.\nCATEGORY: Testing\nPAGES: 1-{half}\n---\n"
+            "## Part one\n\n> **Definition 1.1** (Test). $(a_n)$ converges to $L$ if $|a_n - L| < \\varepsilon$.\n\n"
+            "[[FIGURE page=1 box=100,100,600,400 | a test sketch of $\\hat{f}(x)$]]\n"
         )
-        return "Test transcription", "A placeholder note produced without calling the API.", body, {"in": 0, "out": 0}
+        if len(pages) > 1:
+            fake += (
+                f"=== NOTE ===\nTITLE: Fake topic two\nSUMMARY: Second placeholder note.\nCATEGORY: Testing\n"
+                f"PAGES: {half + 1}-{len(pages)}\n---\n## Part two\n\n$$\\int_0^1 x\\,dx = \\tfrac12$$\n"
+            )
+        return parse_notes(fake, len(pages)), {"in": 0, "out": 0}
 
     import anthropic
 
@@ -164,9 +220,10 @@ def transcribe(pages: list[Image.Image]) -> tuple[str, str, str, dict]:
         data = base64.standard_b64encode(jpeg_bytes(shrink(page, MAX_EDGE), 88)).decode()
         content.append({"type": "text", "text": f"Page {i}:"})
         content.append({"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": data}})
+    cats = ", ".join(categories) if categories else "(none yet)"
     content.append({
         "type": "text",
-        "text": f"These are pages 1–{len(pages)} of one set of notes, in order. "
+        "text": f"These are pages 1–{len(pages)}, in order. Existing categories: {cats}. "
                 "Transcribe them following the instructions.",
     })
     msg = client.messages.create(
@@ -176,12 +233,110 @@ def transcribe(pages: list[Image.Image]) -> tuple[str, str, str, dict]:
         messages=[{"role": "user", "content": content}],
     )
     text = "".join(b.text for b in msg.content if b.type == "text")
-    usage = {"in": msg.usage.input_tokens, "out": msg.usage.output_tokens}
+    return parse_notes(text, len(pages)), {"in": msg.usage.input_tokens, "out": msg.usage.output_tokens}
 
-    m = re.match(r"\s*TITLE:\s*(.+?)\s*\n\s*SUMMARY:\s*(.+?)\s*\n\s*---\s*\n(.*)", text, re.S)
-    if not m:  # model ignored the format: keep everything, flag it
-        return "Untitled notes", "", text.strip(), usage
-    return m.group(1).strip(), m.group(2).strip(), m.group(3).strip(), usage
+
+# ----------------------------------------------------------------- figures
+FIGURE_RE = re.compile(
+    r"^\[\[FIGURE\s+page=(\d+)\s+box=\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\|\s*(.*?)\]\][ \t]*$", re.M)
+FIGURE_PAD = 0.015  # extra margin around each box (fraction of the page), boxes are approximate
+
+
+def clean_sketch(img: Image.Image) -> Image.Image:
+    """Grayscale, flatten shadows and paper tint to white, keep pencil strokes dark."""
+    import numpy as np
+    from PIL import ImageFilter
+
+    gray = img.convert("L")
+    g = np.asarray(gray, dtype=np.float32)
+    bg = np.asarray(gray.filter(ImageFilter.GaussianBlur(30)), dtype=np.float32)
+    flat = np.clip(g / np.maximum(bg, 1) * 255, 0, 255)
+    flat = np.clip((flat - 150) * 255 / (235 - 150), 0, 255)
+    return Image.fromarray(flat.astype(np.uint8))
+
+
+def trim_margins(img: Image.Image, pad: tuple[int, int, int, int]) -> Image.Image:
+    """The crop is padded in case the box is a little off. If the padding caught a
+    separate strip of ink (e.g. a neighboring line of text) cut off from the drawing
+    by a blank gap, trim that strip away. pad = (left, top, right, bottom) in px."""
+    import numpy as np
+
+    ink = np.asarray(img) < 128
+
+    def cut(profile, pad_start, pad_end):
+        n = len(profile)
+        lo, hi = 0, n
+        # leading strip: ink inside the start padding, followed by a blank gap
+        has = np.nonzero(profile)[0]
+        if len(has) == 0:
+            return lo, hi
+        blank = ~profile
+        i = has[0]
+        if i < pad_start:
+            j = i
+            while j < n and profile[j]:
+                j += 1
+            k = j
+            while k < n and blank[k]:
+                k += 1
+            if j <= pad_start + 2 and k - j >= 3 and k < n:
+                lo = j + (k - j) // 2
+        i = has[-1]
+        if i >= n - pad_end:
+            j = i
+            while j >= 0 and profile[j]:
+                j -= 1
+            k = j
+            while k >= 0 and blank[k]:
+                k -= 1
+            if j >= n - pad_end - 3 and j - k >= 3 and k >= 0:
+                hi = k + (j - k) // 2 + 1
+        return lo, hi
+
+    rows = ink.sum(axis=1) > max(1, ink.shape[1] // 400)
+    top, bottom = cut(rows, pad[1], pad[3])
+    cols = ink[top:bottom].sum(axis=0) > max(1, (bottom - top) // 400)
+    left, right = cut(cols, pad[0], pad[2])
+    return img.crop((left, top, right, bottom))
+
+
+def alt_text(caption: str) -> str:
+    def plain(tex):
+        tex = re.sub(r"\\(hat|vec|mathbb|mathrm|text)\{([^}]*)\}", r"\2", tex)
+        return re.sub(r"[\\{}^_]", "", tex)
+    return re.sub(r"\$([^$]*)\$", lambda m: plain(m.group(1)), caption).replace('"', "'")
+
+
+def insert_figures(body: str, images: list[Image.Image], slug: str, out_dir: Path) -> tuple[str, int]:
+    """Replace FIGURE lines with crops of the drawing; fall back to a text note if a box is unusable."""
+    count = 0
+
+    def replace(m):
+        nonlocal count
+        page, x0, y0, x1, y1 = (int(m.group(i)) for i in range(1, 6))
+        caption = m.group(6).strip() or "Sketch"
+        caption = caption[0].upper() + caption[1:]
+        if not (1 <= page <= len(images)) or x1 <= x0 or y1 <= y0:
+            return f"*[Figure: {caption} — see original page {max(1, min(page, len(images)))}]*"
+        img = images[page - 1]
+        W, H = img.size
+        box = (
+            max(0, int((x0 / 1000 - FIGURE_PAD) * W)), max(0, int((y0 / 1000 - FIGURE_PAD) * H)),
+            min(W, int((x1 / 1000 + FIGURE_PAD) * W)), min(H, int((y1 / 1000 + FIGURE_PAD) * H)),
+        )
+        if box[2] - box[0] < 20 or box[3] - box[1] < 20:
+            return f"*[Figure: {caption} — see original page {page}]*"
+        count += 1
+        inner = (int(x0 / 1000 * W), int(y0 / 1000 * H), int(x1 / 1000 * W), int(y1 / 1000 * H))
+        pad = (inner[0] - box[0], inner[1] - box[1], box[2] - inner[2], box[3] - inner[3])
+        crop = trim_margins(clean_sketch(img.crop(box)), pad)
+        crop.thumbnail((1100, 1100))
+        crop.save(out_dir / f"fig-{count}.png", optimize=True)
+        return (f'\n<figure class="sketch"><img src="/notes/{slug}/fig-{count}.png" '
+                f'alt="Hand-drawn sketch: {alt_text(caption)}" loading="lazy">'
+                f'<figcaption><span class="fig-num">Figure {count}.</span> {caption}</figcaption></figure>\n')
+
+    return FIGURE_RE.sub(replace, body), count
 
 
 # ------------------------------------------------------- equation checking
@@ -220,46 +375,66 @@ def main() -> int:
         return 1
     created = []
     total_in = total_out = 0
+    categories = existing_categories()
 
     for job in jobs:
         pages = [p for f in job["files"] for p in load_pages(f)]
         print(f"→ {job['name'] or 'loose photos'} ({len(pages)} page(s))")
-        parts = [pages[i:i + MAX_PAGES_PER_REQUEST] for i in range(0, len(pages), MAX_PAGES_PER_REQUEST)]
-        title = summary = None
-        bodies = []
-        for chunk in parts:
-            t, s, body, usage = transcribe(chunk)
-            title, summary = title or t, summary or s
-            bodies.append(body)
+        notes = []
+        for start in range(0, len(pages), MAX_PAGES_PER_REQUEST):
+            chunk = pages[start:start + MAX_PAGES_PER_REQUEST]
+            chunk_notes, usage = transcribe(chunk, categories)
+            for note in chunk_notes:
+                lo, hi = note["pages"]
+                note["images"] = chunk[lo - 1:hi]
+                notes.append(note)
+                if note["category"] and note["category"] not in categories:
+                    categories.append(note["category"])
             total_in += usage["in"]
             total_out += usage["out"]
-        body = "\n\n".join(bodies)
 
         when = leading_date(job["name"] or "") or date.today().isoformat()
-        slug = slugify(job["name"]) if job["name"] else slugify(title)
-        out_dir = NOTES
-        out_dir.mkdir(parents=True, exist_ok=True)
-        out = out_dir / f"{when}-{slug}.md"
-        n = 2
-        while out.exists():  # never overwrite an existing note
-            out = out_dir / f"{when}-{slug}-{n}.md"
-            n += 1
-        slug = out.stem[11:]
+        for note in notes:
+            # A folder name becomes the address only when the folder is a single note.
+            base = job["name"] if job["name"] and len(notes) == 1 else note["title"]
+            # Each note's address (/notes/<slug>/) must be unique across all dates.
+            NOTES.mkdir(parents=True, exist_ok=True)
+            root_slug = slug = slugify(base)
+            n = 2
+            while any(NOTES.glob(f"????-??-??-{slug}.md")) or (SCANS / slug).exists():
+                slug = f"{root_slug}-{n}"
+                n += 1
+            out = NOTES / f"{when}-{slug}.md"
 
-        out.write_text(
-            "---\n"
-            f"title: {title.replace(chr(10), ' ')}\n"
-            f"date: {when}\n"
-            f"summary: {summary.replace(chr(10), ' ')}\n"
-            f"pages: {len(pages)}\n"
-            "---\n" + body + "\n",
-            encoding="utf-8",
-        )
+            front = [
+                "---",
+                f"title: {note['title'].replace(chr(10), ' ')}",
+                f"date: {when}",
+            ]
+            if note["category"]:
+                front.append(f"category: {note['category'].replace(chr(10), ' ')}")
+            front += [
+                f"summary: {note['summary'].replace(chr(10), ' ')}",
+                f"pages: {len(note['images'])}",
+                "---",
+            ]
+            scan_dir = SCANS / slug
+            scan_dir.mkdir(parents=True, exist_ok=True)
+            for i, page in enumerate(note["images"], 1):
+                (scan_dir / f"page-{i}.jpg").write_bytes(jpeg_bytes(shrink(page, KEEP_EDGE), 72))
+            note["body"], n_figures = insert_figures(note["body"], note["images"], slug, scan_dir)
 
-        scan_dir = SCANS / slug
-        scan_dir.mkdir(parents=True, exist_ok=True)
-        for i, page in enumerate(pages, 1):
-            (scan_dir / f"page-{i}.jpg").write_bytes(jpeg_bytes(shrink(page, KEEP_EDGE), 72))
+            out.write_text("\n".join(front) + "\n" + note["body"] + "\n", encoding="utf-8")
+
+            created.append({
+                "path": out.relative_to(ROOT).as_posix(),
+                "title": note["title"],
+                "category": note["category"],
+                "pages": len(note["images"]),
+                "figures": n_figures,
+                "unclear": note["body"].count('class="unclear"'),
+                "math_errors": check_math(note["body"]),
+            })
 
         for path in job["remove"]:
             if path.is_dir():
@@ -271,14 +446,6 @@ def main() -> int:
                 path.rmdir()
             else:
                 path.unlink()
-
-        created.append({
-            "path": out.relative_to(ROOT).as_posix(),
-            "title": title,
-            "pages": len(pages),
-            "unclear": body.count('class="unclear"'),
-            "math_errors": check_math(body),
-        })
 
     # Empty folders left behind in the inbox.
     if INBOX.exists():
@@ -310,7 +477,9 @@ def write_outputs(created: list[dict], tokens_in: int, tokens_out: int) -> None:
             flags.append(f"⚠️ {c['unclear']} unclear spot(s) marked [??]")
         if c["math_errors"]:
             flags.append(f"❌ {len(c['math_errors'])} equation(s) don't render")
-        lines.append(f"- **{c['title']}**: `{c['path']}` · {c['pages']} page(s)"
+        cat = f" · category: *{c['category']}*" if c.get("category") else ""
+        figs = f" · {c['figures']} figure(s)" if c.get("figures") else ""
+        lines.append(f"- **{c['title']}**: `{c['path']}` · {c['pages']} page(s){figs}{cat}"
                      + (f" · {' · '.join(flags)}" if flags else " · ✅ all equations render"))
         for err in c["math_errors"]:
             lines.append(f"  - `{err}`")
@@ -320,6 +489,9 @@ def write_outputs(created: list[dict], tokens_in: int, tokens_out: int) -> None:
         "- Open each note under **Files changed** and compare it with the original pages "
         "(saved next to it under `static/notes/`).",
         "- Search for `[??]` and fix anything marked unclear.",
+        "- Check that each cropped figure shows the whole drawing (they're in `static/notes/<note>/fig-N.png`).",
+        "- Check how the pages were split into notes and the `category:` each got "
+        "(edit the front matter to change it).",
         "- Fix any equations listed above as not rendering.",
         "- Edit right here in the pull request (⋯ → Edit file), then **Merge** to publish.",
         "",
